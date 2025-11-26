@@ -44,13 +44,6 @@ export const Login: React.FC = () => {
         </div>
         <h2 className="text-4xl font-serif italic font-bold text-white mb-2">Javier. R</h2>
         <p className="text-brand-gold uppercase tracking-[0.3em] text-xs">Barbería</p>
-        
-        <div className="text-xs text-gray-500 mt-6 space-y-1 bg-gray-900/30 p-4 border border-gray-800">
-            <p className="uppercase tracking-wide text-gray-400 mb-2 font-bold">Credenciales Demo</p>
-            <p><strong>Cliente:</strong> cliente@barberia.com / Cliente123*</p>
-            <p><strong>Barbero:</strong> barbero@barberia.com / Barber123*</p>
-            <p><strong>Admin:</strong> admin@barberia.com / Admin123*</p>
-        </div>
       </div>
 
       {error && (
