@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../services/api';
-import { Barber, Service } from '../types';
-import { ArrowLeft, Save } from 'lucide-react';
+import { Barber } from '../types';
+import { ArrowLeft, Save, Upload, Image as ImageIcon } from 'lucide-react';
 
 export const AdminBarberForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +24,7 @@ export const AdminBarberForm: React.FC = () => {
   });
 
   const [specialtyInput, setSpecialtyInput] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (isEdit && id) {
@@ -45,6 +46,21 @@ export const AdminBarberForm: React.FC = () => {
     } catch (error) {
         alert("Error al guardar");
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!e.target.files || e.target.files.length === 0) return;
+      const file = e.target.files[0];
+      
+      setUploading(true);
+      try {
+          const publicUrl = await api.barbers.uploadPhoto(file);
+          setFormData({ ...formData, photoUrl: publicUrl });
+      } catch (error: any) {
+          alert("Error al subir imagen: " + error.message);
+      } finally {
+          setUploading(false);
+      }
   };
 
   const toggleDay = (day: number) => {
@@ -89,13 +105,34 @@ export const AdminBarberForm: React.FC = () => {
                     />
                 </div>
                 <div>
-                    <label className="block text-sm text-gray-400 mb-1">Foto URL</label>
-                    <input 
-                        required
-                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white"
-                        value={formData.photoUrl}
-                        onChange={e => setFormData({...formData, photoUrl: e.target.value})}
-                    />
+                    <label className="block text-sm text-gray-400 mb-1">Foto del Barbero</label>
+                    
+                    <div className="flex items-center gap-4 mb-2">
+                        {formData.photoUrl && (
+                            <img src={formData.photoUrl} alt="Preview" className="h-16 w-16 rounded-full object-cover border border-brand-gold" />
+                        )}
+                        <label className="cursor-pointer bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm flex items-center border border-gray-600">
+                            {uploading ? (
+                                <span className="animate-pulse">Subiendo...</span>
+                            ) : (
+                                <>
+                                    <Upload size={16} className="mr-2" />
+                                    Subir Imagen
+                                </>
+                            )}
+                            <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} disabled={uploading} />
+                        </label>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">O usa URL externa:</span>
+                        <input 
+                            className="flex-1 bg-gray-900 border border-gray-700 rounded p-1 text-xs text-gray-400"
+                            value={formData.photoUrl}
+                            onChange={e => setFormData({...formData, photoUrl: e.target.value})}
+                            placeholder="https://..."
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -183,9 +220,9 @@ export const AdminBarberForm: React.FC = () => {
                 </div>
             </div>
 
-            <button type="submit" className="w-full bg-brand-gold text-black font-bold py-3 rounded-lg hover:bg-white transition-colors flex justify-center items-center">
+            <button type="submit" disabled={uploading} className="w-full bg-brand-gold text-black font-bold py-3 rounded-lg hover:bg-white transition-colors flex justify-center items-center disabled:opacity-50">
                 <Save size={20} className="mr-2" />
-                Guardar Barbero
+                {uploading ? 'Subiendo Imagen...' : 'Guardar Barbero'}
             </button>
         </form>
     </div>

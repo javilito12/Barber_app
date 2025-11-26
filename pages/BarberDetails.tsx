@@ -42,9 +42,20 @@ export const BarberDetails: React.FC = () => {
           api.barbers.getById(id),
           api.services.list()
         ]);
+        
         if (!barberData) throw new Error('Barber not found');
         setBarber(barberData);
-        setServices(allServices.filter(s => barberData.services.includes(s.id)));
+
+        // LÓGICA ROBUSTA: Si el barbero tiene servicios asignados, intentamos filtrar.
+        // Si el filtro resulta vacío o el barbero no tiene IDs, MOSTRAR TODOS (Fallback).
+        if (barberData.services && barberData.services.length > 0) {
+            const filtered = allServices.filter(s => barberData.services.includes(s.id));
+            setServices(filtered.length > 0 ? filtered : allServices);
+        } else {
+            // Si no hay asignación específica, asumimos que hace todo.
+            setServices(allServices);
+        }
+
       } catch (err) {
         console.error(err);
         navigate('/');
@@ -189,31 +200,37 @@ export const BarberDetails: React.FC = () => {
         {barber.isActive ? (
             <div>
               <h2 className="text-xl font-semibold text-brand-gold-light mb-4">1. Elige un Servicio</h2>
-              <div className="space-y-3">
-                {services.map(service => (
-                  <div 
-                    key={service.id}
-                    onClick={() => setSelectedServiceId(service.id)}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all flex justify-between items-center group ${
-                      selectedServiceId === service.id 
-                        ? 'bg-brand-gold/10 border-brand-gold ring-1 ring-brand-gold' 
-                        : 'bg-brand-black border-gray-800 hover:border-gray-600'
-                    }`}
-                  >
-                    <div>
-                      <h3 className="font-bold text-white">{service.name}</h3>
-                      <p className="text-sm text-gray-400 mt-1">{service.description}</p>
-                      <div className="flex items-center mt-2 text-xs text-gray-500 space-x-3">
-                        <span className="flex items-center"><Clock size={12} className="mr-1"/> {service.durationMinutes} min</span>
-                      </div>
+              {services.length === 0 ? (
+                 <div className="p-4 bg-yellow-900/20 text-yellow-500 border border-yellow-800 rounded">
+                    No hay servicios configurados en el sistema. Contacta al administrador.
+                 </div>
+              ) : (
+                <div className="space-y-3">
+                    {services.map(service => (
+                    <div 
+                        key={service.id}
+                        onClick={() => setSelectedServiceId(service.id)}
+                        className={`p-4 rounded-xl border cursor-pointer transition-all flex justify-between items-center group ${
+                        selectedServiceId === service.id 
+                            ? 'bg-brand-gold/10 border-brand-gold ring-1 ring-brand-gold' 
+                            : 'bg-brand-black border-gray-800 hover:border-gray-600'
+                        }`}
+                    >
+                        <div>
+                        <h3 className="font-bold text-white">{service.name}</h3>
+                        <p className="text-sm text-gray-400 mt-1">{service.description}</p>
+                        <div className="flex items-center mt-2 text-xs text-gray-500 space-x-3">
+                            <span className="flex items-center"><Clock size={12} className="mr-1"/> {service.durationMinutes} min</span>
+                        </div>
+                        </div>
+                        <div className="text-right">
+                        <span className="block text-xl font-bold text-brand-gold">${service.price}</span>
+                        {selectedServiceId === service.id && <Check className="ml-auto mt-2 text-brand-gold" size={20} />}
+                        </div>
                     </div>
-                    <div className="text-right">
-                      <span className="block text-xl font-bold text-brand-gold">${service.price}</span>
-                      {selectedServiceId === service.id && <Check className="ml-auto mt-2 text-brand-gold" size={20} />}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    ))}
+                </div>
+              )}
             </div>
         ) : (
             <div className="p-8 border border-dashed border-gray-700 rounded-xl text-center text-gray-500">
