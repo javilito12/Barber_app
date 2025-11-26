@@ -3,6 +3,18 @@ import { User, Barber, Service, Appointment, AuthResponse, UserRole, Appointment
 
 export const api = {
   auth: {
+    // Nueva función para OAuth
+    loginWithProvider: async (provider: 'google' | 'apple') => {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider,
+        options: {
+          redirectTo: window.location.origin, // Redirige a la misma página tras login
+        }
+      });
+      if (error) throw error;
+      return data;
+    },
+
     login: async (email: string, password: string): Promise<AuthResponse> => {
       // 1. Intentar Loguear en el sistema de Autenticación
       const { data, error } = await supabase.auth.signInWithPassword({

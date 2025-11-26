@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { Appointment, Barber, Service, AppointmentStatus } from '../types';
+import { Appointment, Barber, Service, AppointmentStatus, User } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { XCircle, Shield, Edit, Calendar, CheckCircle } from 'lucide-react';
+import { XCircle, Shield, Edit, Calendar, CheckCircle, Trash2 } from 'lucide-react';
 
 interface EnrichedAppointment extends Appointment {
   barber?: Barber;
   service?: Service;
+  user?: User;
 }
 
 export const AdminAppointments: React.FC = () => {
@@ -23,10 +24,11 @@ export const AdminAppointments: React.FC = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [apts, allBarbers, services] = await Promise.all([
+    const [apts, allBarbers, services, allUsers] = await Promise.all([
         api.appointments.listAll(),
         api.barbers.list(true),
-        api.services.list()
+        api.services.list(),
+        api.users.list()
     ]);
 
     setBarbers(allBarbers);
@@ -43,7 +45,8 @@ export const AdminAppointments: React.FC = () => {
     const enriched = filteredApts.map(a => ({
         ...a,
         barber: allBarbers.find(b => b.id === a.barberId),
-        service: services.find(s => s.id === a.serviceId)
+        service: services.find(s => s.id === a.serviceId),
+        user: allUsers.find(u => u.id === a.userId)
     }));
     
     setAppointments(enriched);
@@ -67,6 +70,16 @@ export const AdminAppointments: React.FC = () => {
           fetchAll();
       } catch (e) {
           alert("Error al actualizar estado");
+      }
+  }
+
+  const handleDelete = async (id: string) => {
+      if(!window.confirm("¿Eliminar esta cita del historial? Esta acción es permanente.")) return;
+      try {
+          await api.appointments.delete(id);
+          fetchAll();
+      } catch (e) {
+          alert("Error al eliminar");
       }
   }
 
@@ -115,7 +128,7 @@ export const AdminAppointments: React.FC = () => {
                             <th className="px-6 py-4">Fecha/Hora</th>
                             <th className="px-6 py-4">Barbero</th>
                             <th className="px-6 py-4">Servicio</th>
-                            <th className="px-6 py-4">Cliente (ID)</th>
+                            <th className="px-6 py-4">Cliente</th>
                             <th className="px-6 py-4">Estado</th>
                             <th className="px-6 py-4">Acciones</th>
                         </tr>
@@ -138,7 +151,9 @@ export const AdminAppointments: React.FC = () => {
                                     {apt.pointsRedeemed ? <span className="block text-xs text-yellow-500">Con Puntos</span> : ''}
                                 </td>
                                 <td className="px-6 py-4 text-gray-400">
-                                    {apt.userId}
+                                    <div className="text-white font-medium">{apt.user?.name || 'Usuario desconocido'}</div>
+                                    <div className="text-xs opacity-70">{apt.user?.phone || apt.user?.email}</div>
+                                    {isAdmin && !apt.user && <div className="text-[10px] opacity-50">{apt.userId}</div>}
                                 </td>
                                 <td className="px-6 py-4">
                                     <span className={`text-xs px-2 py-1 rounded border ${
@@ -166,6 +181,12 @@ export const AdminAppointments: React.FC = () => {
                                                 <XCircle size={18} />
                                             </button>
                                         </>
+                                    )}
+                                    {/* Botón de eliminar solo para citas completadas o canceladas */}
+                                    {(apt.status === AppointmentStatus.COMPLETED || apt.status === AppointmentStatus.CANCELLED) && (
+                                        <button onClick={() => handleDelete(apt.id)} className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded" title="Eliminar del historial">
+                                            <Trash2 size={18} />
+                                        </button>
                                     )}
                                 </td>
                             </tr>
