@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Scissors, Calendar, LogOut, Menu, X, Shield, Users, Gem, List } from 'lucide-react';
+import { Scissors, Calendar, LogOut, Menu, X, Shield, Users, Gem, List, UserCog } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout, isAdmin, isBarber } = useAuth();
@@ -79,6 +79,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     <>
                       <NavItem to="/admin/barbers" icon={Users} label="Barberos" />
                       <NavItem to="/admin/services" icon={List} label="Servicios" />
+                      <NavItem to="/admin/users" icon={UserCog} label="Usuarios" />
                       <NavItem to="/admin/appointments" icon={Shield} label="Panel Citas" />
                     </>
                   )}
@@ -150,6 +151,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     <>
                       <NavItem to="/admin/barbers" icon={Users} label="Barberos" />
                       <NavItem to="/admin/services" icon={List} label="Servicios" />
+                      <NavItem to="/admin/users" icon={UserCog} label="Usuarios" />
                       <NavItem to="/admin/appointments" icon={Shield} label="Panel Citas" />
                     </>
                   )}

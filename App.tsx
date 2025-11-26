@@ -11,6 +11,8 @@ import { AdminBarbers } from './pages/AdminBarbers';
 import { AdminBarberForm } from './pages/AdminBarberForm';
 import { AdminAppointments } from './pages/AdminAppointments';
 import { AdminServices } from './pages/AdminServices';
+import { AdminUsers } from './pages/AdminUsers';
+
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: string[] }> = ({ children, roles }) => {
     const { user, isLoading } = useAuth();
@@ -40,6 +42,7 @@ function App() {
             <Route path="/admin/barbers/new" element={<ProtectedRoute roles={['ADMIN']}><AdminBarberForm /></ProtectedRoute>} />
             <Route path="/admin/barbers/edit/:id" element={<ProtectedRoute roles={['ADMIN']}><AdminBarberForm /></ProtectedRoute>} />
             <Route path="/admin/services" element={<ProtectedRoute roles={['ADMIN']}><AdminServices /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute roles={['ADMIN']}><AdminUsers /></ProtectedRoute>} />
             
             {/* Shared Admin/Barber Route */}
             <Route path="/admin/appointments" element={<ProtectedRoute roles={['ADMIN', 'BARBER']}><AdminAppointments /></ProtectedRoute>} />

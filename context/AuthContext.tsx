@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, AuthResponse, UserRole } from '../types';
 import { api } from '../services/api';
@@ -19,16 +20,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const refreshUser = () => {
-    const currentUser = api.auth.getCurrentUser();
-    if (currentUser) {
-      setUser(currentUser);
+  const refreshUser = async () => {
+    try {
+        const currentUser = await api.auth.getCurrentUser();
+        if (currentUser) {
+            setUser(currentUser);
+        } else {
+            setUser(null);
+        }
+    } catch (e) {
+        console.error("Error refreshing session", e);
+        setUser(null);
     }
   };
 
   useEffect(() => {
-    refreshUser();
-    setIsLoading(false);
+    const init = async () => {
+        await refreshUser();
+        setIsLoading(false);
+    };
+    init();
   }, []);
 
   const login = (data: AuthResponse) => {
