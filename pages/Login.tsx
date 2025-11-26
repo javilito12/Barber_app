@@ -33,7 +33,7 @@ export const Login: React.FC = () => {
     }
   };
 
-  const handleSocialLogin = async (provider: 'google' | 'apple') => {
+  const handleSocialLogin = async (provider: 'google') => {
     try {
       setError('');
       await api.auth.loginWithProvider(provider);
@@ -62,11 +62,11 @@ export const Login: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="mb-6">
         <button
           type="button"
           onClick={() => handleSocialLogin('google')}
-          className="flex items-center justify-center bg-white hover:bg-gray-100 text-gray-900 py-2.5 px-4 rounded transition-colors font-medium text-sm"
+          className="w-full flex items-center justify-center bg-white hover:bg-gray-100 text-gray-900 py-2.5 px-4 rounded transition-colors font-medium text-sm"
         >
           <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
             <path
@@ -86,17 +86,7 @@ export const Login: React.FC = () => {
               d="M12 4.66c1.61 0 3.06.55 4.21 1.64l3.15-3.15C17.45 1.14 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
             />
           </svg>
-          Google
-        </button>
-        <button
-          type="button"
-          onClick={() => handleSocialLogin('apple')}
-          className="flex items-center justify-center bg-white hover:bg-gray-100 text-gray-900 py-2.5 px-4 rounded transition-colors font-medium text-sm"
-        >
-          <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17.05 20.28c-.98.95-2.05 1.88-3.3 1.88-1.3 0-2.4-.6-3.7-.6s-2.4.6-3.7.6c-1.2 0-2.3-.98-3.3-1.98C.73 17.55 0 13.98 0 11.33c0-4.13 2.5-6.65 5.5-6.65 1.3 0 2.45.65 3.3.65.8 0 1.95-.65 3.35-.65 1.25 0 2.45.45 3.4 1.15-2.45 1.35-2.75 4.9.45 6.35-.55 2.8-2 5.55-3.95 8.1M13 2.5c-.3 1.9-1.95 3.35-3.75 3.35-.2 0-.4 0-.6-.05.35-2.15 2.1-3.6 3.9-3.6.15 0 .3 0 .45.05z" />
-          </svg>
-          Apple
+          Continuar con Google
         </button>
       </div>
 
