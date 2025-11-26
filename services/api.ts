@@ -1,425 +1,458 @@
+import { supabase } from '../supabaseClient';
 import { User, Barber, Service, Appointment, AuthResponse, UserRole, AppointmentStatus, Review } from '../types';
-import { INITIAL_BARBERS, INITIAL_SERVICES, INITIAL_ADMIN, INITIAL_BARBER_USER, INITIAL_CLIENT } from './mockData';
-
-const DELAY_MS = 400;
-
-// Helper to simulate network delay
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// LocalStorage Keys
-const KEYS = {
-  USERS: 'barber_app_users',
-  BARBERS: 'barber_app_barbers',
-  SERVICES: 'barber_app_services',
-  APPOINTMENTS: 'barber_app_appointments',
-  TOKEN: 'barber_app_token',
-  CURRENT_USER: 'barber_app_current_user'
-};
-
-// Initialize DB
-const initializeDB = () => {
-  if (!localStorage.getItem(KEYS.BARBERS)) {
-    localStorage.setItem(KEYS.BARBERS, JSON.stringify(INITIAL_BARBERS));
-  }
-  if (!localStorage.getItem(KEYS.SERVICES)) {
-    localStorage.setItem(KEYS.SERVICES, JSON.stringify(INITIAL_SERVICES));
-  }
-  if (!localStorage.getItem(KEYS.APPOINTMENTS)) {
-    localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify([]));
-  }
-  if (!localStorage.getItem(KEYS.USERS)) {
-    // Include the new Client Demo in initialization
-    localStorage.setItem(KEYS.USERS, JSON.stringify([INITIAL_ADMIN, INITIAL_BARBER_USER, INITIAL_CLIENT]));
-  }
-};
-
-initializeDB();
 
 export const api = {
   auth: {
     login: async (email: string, password: string): Promise<AuthResponse> => {
-      await delay(DELAY_MS);
-      const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+      // 1. Intentar Loguear en el sistema de Autenticación
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        console.error("Error Auth:", error);
+        if (error.message.includes("Email not confirmed")) {
+           throw new Error("Debes confirmar tu email antes de entrar (o desactiva 'Confirm Email' en Supabase > Auth > Providers).");
+        }
+        if (error.message.includes("Invalid login credentials")) {
+           throw new Error("Contraseña incorrecta o email no encontrado.");
+        }
+        throw new Error(error.message);
+      }
+
+      if (!data.user) throw new Error("No se pudo iniciar sesión");
+
+      // 2. Intentar buscar el perfil en la tabla 'users'
+      let { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("Error base de datos:", profileError);
+        throw new Error("Error de conexión al buscar tu perfil.");
+      }
+
+      // ---------------------------------------------------------
+      // AUTOREPARACIÓN: Si el usuario existe en Auth pero no en DB
+      // ---------------------------------------------------------
+      if (!profile) {
+        console.warn("Usuario sin perfil en tabla pública. Intentando autoreparación...");
+        
+        const newProfile = {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.user_metadata?.name || 'Usuario',
+            role: 'CLIENT',
+            loyalty_points: 0
+        };
+
+        const { error: createError } = await supabase.from('users').insert([newProfile]);
+        
+        if (createError) {
+             console.error("Error autoreparación:", createError);
+             throw new Error("Tu cuenta existe pero no tiene perfil de datos y no se pudo crear automáticamente.");
+        }
+
+        // Usamos el perfil recién creado
+        profile = newProfile;
+      }
+
+      // 3. Normalizar ROL (Evitar errores por mayúsculas/espacios)
+      let roleRaw = (profile.role || 'CLIENT').toUpperCase().trim();
+      let safeRole = UserRole.CLIENT;
       
-      // Admin Logic
-      if (email === 'admin@barberia.com' && password === 'Admin123*') {
-        const admin = users.find(u => u.email === email) || INITIAL_ADMIN;
-        const token = `mock-admin-token-${Date.now()}`;
-        localStorage.setItem(KEYS.TOKEN, token);
-        localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(admin));
-        return { user: admin, token };
-      }
+      if (roleRaw === 'ADMIN') safeRole = UserRole.ADMIN;
+      else if (roleRaw === 'BARBER') safeRole = UserRole.BARBER;
 
-      // Barber Logic
-      if (email === 'barbero@barberia.com' && password === 'Barber123*') {
-        const barberUser = users.find(u => u.email === email) || INITIAL_BARBER_USER;
-        const token = `mock-barber-token-${Date.now()}`;
-        localStorage.setItem(KEYS.TOKEN, token);
-        localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(barberUser));
-        return { user: barberUser, token };
-      }
+      // 4. Construir el objeto usuario
+      const userDetails: User = {
+        id: profile.id,
+        email: profile.email,
+        name: profile.name,
+        role: safeRole,
+        loyaltyPoints: profile.loyalty_points || 0,
+        phone: profile.phone
+      };
 
-      // Client Demo Logic
-      if (email === 'cliente@barberia.com' && password === 'Cliente123*') {
-        const clientUser = users.find(u => u.email === email) || INITIAL_CLIENT;
-        const token = `mock-client-token-${Date.now()}`;
-        localStorage.setItem(KEYS.TOKEN, token);
-        localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(clientUser));
-        return { user: clientUser, token };
-      }
-
-      const user = users.find(u => u.email === email);
-      
-      if (user && password === '123456') { 
-        const token = `mock-jwt-token-${Date.now()}`;
-        localStorage.setItem(KEYS.TOKEN, token);
-        localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(user));
-        return { user, token };
-      }
-      throw new Error('Credenciales inválidas');
+      return {
+        user: userDetails,
+        token: data.session?.access_token || '',
+      };
     },
 
-    register: async (data: Omit<User, 'id' | 'role' | 'loyaltyPoints'> & { password: string }): Promise<AuthResponse> => {
-      await delay(DELAY_MS);
-      const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-      
-      if (users.find(u => u.email === data.email)) {
-        throw new Error('El usuario ya existe');
+    register: async (userData: any): Promise<AuthResponse> => {
+      // 1. Crear usuario en Auth de Supabase
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            name: userData.name, // Esto se pasará al trigger handle_new_user
+          },
+        },
+      });
+
+      if (error) throw new Error(error.message);
+      if (!data.user) throw new Error("Fallo en el registro");
+
+      // Si Supabase requiere confirmación de email y no hay sesión iniciada:
+      if (!data.session) {
+         // Retornamos el usuario pero sin token válido para forzar revisión de email o login manual
+         throw new Error("Registro exitoso. Por favor revisa tu email para confirmar tu cuenta antes de iniciar sesión.");
       }
 
+      // Esperar un momento para que el trigger de base de datos cree el perfil público
+      await new Promise(r => setTimeout(r, 1500));
+
       const newUser: User = {
-        id: `u-${Date.now()}`,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
+        id: data.user.id,
+        email: userData.email,
+        name: userData.name,
         role: UserRole.CLIENT,
         loyaltyPoints: 0
       };
 
-      users.push(newUser);
-      localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-      
-      const token = `mock-jwt-token-${Date.now()}`;
-      localStorage.setItem(KEYS.TOKEN, token);
-      localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(newUser));
-
-      return { user: newUser, token };
+      return {
+        user: newUser,
+        token: data.session?.access_token || '',
+      };
     },
 
     logout: async () => {
-      localStorage.removeItem(KEYS.TOKEN);
-      localStorage.removeItem(KEYS.CURRENT_USER);
+      await supabase.auth.signOut();
     },
 
-    getCurrentUser: (): User | null => {
-      const u = localStorage.getItem(KEYS.CURRENT_USER);
-      if (!u) return null;
-      // Re-fetch from DB to get updated points
-      const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-      const storedUser = JSON.parse(u);
-      return users.find(user => user.id === storedUser.id) || storedUser;
+    getCurrentUser: async (): Promise<User | null> => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return null;
+
+      let { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      // Autoreparación silenciosa en getCurrentUser
+      if (!profile) {
+          const newProfile = {
+            id: authUser.id,
+            email: authUser.email,
+            name: authUser.user_metadata?.name || 'Usuario',
+            role: 'CLIENT',
+            loyalty_points: 0
+          };
+          const { error } = await supabase.from('users').insert([newProfile]);
+          if (!error) profile = newProfile;
+          else return null;
+      }
+
+      // Normalizar Rol
+      let roleRaw = (profile.role || 'CLIENT').toUpperCase().trim();
+      let safeRole = UserRole.CLIENT;
+      if (roleRaw === 'ADMIN') safeRole = UserRole.ADMIN;
+      else if (roleRaw === 'BARBER') safeRole = UserRole.BARBER;
+
+      return {
+        id: profile.id,
+        email: profile.email,
+        name: profile.name,
+        role: safeRole,
+        loyaltyPoints: profile.loyalty_points || 0,
+        phone: profile.phone
+      };
     }
   },
 
   users: {
     list: async (): Promise<User[]> => {
-      await delay(DELAY_MS);
-      return JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) throw error;
+      return data.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        role: (u.role || 'CLIENT').toUpperCase().trim() as UserRole,
+        loyaltyPoints: u.loyalty_points,
+        phone: u.phone
+      }));
     },
-    updateRole: async (userId: string, newRole: UserRole): Promise<User> => {
-        await delay(DELAY_MS);
-        const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-        const index = users.findIndex(u => u.id === userId);
-        
-        if (index === -1) throw new Error("Usuario no encontrado");
-        
-        // Prevent editing the main admin to avoid lockout in demo
-        if (users[index].email === 'admin@barberia.com') {
-            throw new Error("No se puede modificar el administrador principal");
-        }
-
-        users[index].role = newRole;
-        localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-        return users[index];
+    updateRole: async (userId: string, newRole: UserRole): Promise<void> => {
+      const { error } = await supabase.from('users').update({ role: newRole }).eq('id', userId);
+      if (error) throw error;
     }
   },
 
   barbers: {
     list: async (includeInactive = false): Promise<Barber[]> => {
-      await delay(DELAY_MS);
-      const barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-      if (includeInactive) return barbers;
-      return barbers.filter(b => b.isActive);
+      let query = supabase.from('barbers').select('*');
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+
+      return data.map((b: any) => ({
+        id: b.id,
+        name: b.name,
+        bio: b.bio,
+        photoUrl: b.photo_url,
+        specialties: b.specialties || [],
+        isActive: b.is_active,
+        rating: b.rating,
+        schedule: b.schedule,
+        services: [], // En una app real, esto sería una relación
+        reviews: b.reviews || []
+      }));
     },
     getById: async (id: string): Promise<Barber | undefined> => {
-      await delay(DELAY_MS);
-      const barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-      return barbers.find(b => b.id === id);
+      const { data, error } = await supabase.from('barbers').select('*').eq('id', id).single();
+      if (error) return undefined;
+
+      // FIX: Obtener todos los servicios disponibles en la BD para asignarlos al barbero
+      // Esto soluciona el problema de que no aparezcan servicios al reservar
+      const { data: servicesData } = await supabase.from('services').select('id');
+      const allServiceIds = servicesData ? servicesData.map((s: any) => s.id) : [];
+
+      return {
+        id: data.id,
+        name: data.name,
+        bio: data.bio,
+        photoUrl: data.photo_url,
+        specialties: data.specialties || [],
+        isActive: data.is_active,
+        rating: data.rating,
+        schedule: data.schedule,
+        services: allServiceIds, // Asignamos IDs reales
+        reviews: data.reviews || []
+      };
     },
-    create: async (barber: Omit<Barber, 'id' | 'rating' | 'reviews'>): Promise<Barber> => {
-        await delay(DELAY_MS);
-        const barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-        const newBarber: Barber = {
-            ...barber,
-            id: `b-${Date.now()}`,
-            rating: 5.0,
-            reviews: [],
-            isActive: true
-        };
-        barbers.push(newBarber);
-        localStorage.setItem(KEYS.BARBERS, JSON.stringify(barbers));
-        return newBarber;
+    create: async (barber: any): Promise<void> => {
+      const { error } = await supabase.from('barbers').insert([{
+        name: barber.name,
+        bio: barber.bio,
+        photo_url: barber.photoUrl,
+        specialties: barber.specialties,
+        is_active: barber.isActive,
+        schedule: barber.schedule
+      }]);
+      if (error) throw error;
     },
-    update: async (id: string, updates: Partial<Barber>): Promise<Barber> => {
-        await delay(DELAY_MS);
-        const barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-        const index = barbers.findIndex(b => b.id === id);
-        if (index === -1) throw new Error("Barbero no encontrado");
-        
-        barbers[index] = { ...barbers[index], ...updates };
-        localStorage.setItem(KEYS.BARBERS, JSON.stringify(barbers));
-        return barbers[index];
+    update: async (id: string, updates: any): Promise<void> => {
+      const payload: any = {};
+      if (updates.isActive !== undefined) payload.is_active = updates.isActive;
+      if (updates.name) payload.name = updates.name;
+      if (updates.bio) payload.bio = updates.bio;
+      if (updates.photoUrl) payload.photo_url = updates.photoUrl;
+      if (updates.specialties) payload.specialties = updates.specialties;
+      if (updates.schedule) payload.schedule = updates.schedule;
+      
+      const { error } = await supabase.from('barbers').update(payload).eq('id', id);
+      if (error) throw error;
     },
     delete: async (id: string): Promise<void> => {
-        await delay(DELAY_MS);
-        let barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-        barbers = barbers.filter(b => b.id !== id);
-        localStorage.setItem(KEYS.BARBERS, JSON.stringify(barbers));
+      const { error } = await supabase.from('barbers').delete().eq('id', id);
+      if (error) throw error;
     },
+    // NUEVO: Subir foto
     uploadPhoto: async (file: File): Promise<string> => {
-      await delay(DELAY_MS);
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9]/g, '')}`;
+        const { data, error } = await supabase.storage.from('barber-photos').upload(fileName, file);
+        if (error) throw error;
+        
+        const { data: { publicUrl } } = supabase.storage.from('barber-photos').getPublicUrl(fileName);
+        return publicUrl;
     },
-    addReview: async (barberId: string, review: Omit<Review, 'id' | 'date'>): Promise<void> => {
-      await delay(DELAY_MS);
-      const barbers: Barber[] = JSON.parse(localStorage.getItem(KEYS.BARBERS) || '[]');
-      const index = barbers.findIndex(b => b.id === barberId);
-      if (index === -1) throw new Error("Barbero no encontrado");
+    addReview: async (barberId: string, review: any): Promise<void> => {
+        const { data: barber } = await supabase.from('barbers').select('reviews').eq('id', barberId).single();
+        const currentReviews = barber?.reviews || [];
+        
+        const newReview = {
+            ...review,
+            id: Date.now().toString(),
+            date: new Date().toISOString().split('T')[0]
+        };
+        const updatedReviews = [newReview, ...currentReviews];
+        
+        const total = updatedReviews.reduce((sum: number, r: any) => sum + r.rating, 0);
+        const newRating = total / updatedReviews.length;
 
-      const newReview: Review = {
-        ...review,
-        id: `rev-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0]
-      };
-
-      const currentReviews = barbers[index].reviews || [];
-      const updatedReviews = [newReview, ...currentReviews];
-      
-      // Recalculate average
-      const totalStars = updatedReviews.reduce((sum, r) => sum + r.rating, 0);
-      const avg = totalStars / updatedReviews.length;
-
-      barbers[index] = { 
-        ...barbers[index], 
-        reviews: updatedReviews,
-        rating: Number(avg.toFixed(1))
-      };
-      
-      localStorage.setItem(KEYS.BARBERS, JSON.stringify(barbers));
+        await supabase.from('barbers').update({
+            reviews: updatedReviews,
+            rating: newRating
+        }).eq('id', barberId);
     }
   },
 
   services: {
     list: async (): Promise<Service[]> => {
-      await delay(DELAY_MS);
-      return JSON.parse(localStorage.getItem(KEYS.SERVICES) || '[]');
+      const { data, error } = await supabase.from('services').select('*');
+      if (error) throw error;
+      return data.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        price: s.price,
+        durationMinutes: s.duration_minutes
+      }));
     },
-    create: async (service: Omit<Service, 'id'>): Promise<Service> => {
-      await delay(DELAY_MS);
-      const services: Service[] = JSON.parse(localStorage.getItem(KEYS.SERVICES) || '[]');
-      const newService = { ...service, id: `s-${Date.now()}` };
-      services.push(newService);
-      localStorage.setItem(KEYS.SERVICES, JSON.stringify(services));
-      return newService;
+    create: async (service: any): Promise<void> => {
+      const { error } = await supabase.from('services').insert([{
+        name: service.name,
+        description: service.description,
+        price: service.price,
+        duration_minutes: service.durationMinutes
+      }]);
+      if (error) throw error;
     },
-    update: async (id: string, updates: Partial<Service>): Promise<Service> => {
-      await delay(DELAY_MS);
-      const services: Service[] = JSON.parse(localStorage.getItem(KEYS.SERVICES) || '[]');
-      const index = services.findIndex(s => s.id === id);
-      if(index === -1) throw new Error("Servicio no encontrado");
-      services[index] = { ...services[index], ...updates };
-      localStorage.setItem(KEYS.SERVICES, JSON.stringify(services));
-      return services[index];
+    update: async (id: string, updates: any): Promise<void> => {
+      const payload: any = {};
+      if (updates.price) payload.price = updates.price;
+      if (updates.name) payload.name = updates.name;
+      if (updates.description) payload.description = updates.description;
+      if (updates.durationMinutes) payload.duration_minutes = updates.durationMinutes;
+
+      const { error } = await supabase.from('services').update(payload).eq('id', id);
+      if (error) throw error;
     },
     delete: async (id: string): Promise<void> => {
-      await delay(DELAY_MS);
-      let services: Service[] = JSON.parse(localStorage.getItem(KEYS.SERVICES) || '[]');
-      services = services.filter(s => s.id !== id);
-      localStorage.setItem(KEYS.SERVICES, JSON.stringify(services));
+      const { error } = await supabase.from('services').delete().eq('id', id);
+      if (error) throw error;
     }
   },
 
   appointments: {
-    create: async (appointmentData: Omit<Appointment, 'id' | 'status' | 'createdAt'>): Promise<Appointment> => {
-      await delay(DELAY_MS);
-      const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
+    create: async (apt: any): Promise<void> => {
+      // 1. Verificar disponibilidad
+      const { data: busy } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('barber_id', apt.barberId)
+        .eq('date', apt.date)
+        .eq('time', apt.time)
+        .neq('status', 'CANCELLED');
       
-      const conflict = appointments.find(
-        a => a.barberId === appointmentData.barberId && 
-             a.date === appointmentData.date && 
-             a.time === appointmentData.time &&
-             a.status !== AppointmentStatus.CANCELLED
-      );
+      if (busy && busy.length > 0) throw new Error("Horario no disponible");
 
-      if (conflict) {
-        throw new Error('Este horario ya no está disponible.');
-      }
+      // 2. Crear cita
+      const { error } = await supabase.from('appointments').insert([{
+        user_id: apt.userId,
+        barber_id: apt.barberId,
+        service_id: apt.serviceId,
+        date: apt.date,
+        time: apt.time,
+        total_price: apt.totalPrice,
+        points_redeemed: apt.pointsRedeemed
+      }]);
 
-      // Check for lunch break
-      const [hour] = appointmentData.time.split(':').map(Number);
-      if (hour >= 12 && hour < 14) {
-          throw new Error('El barbero está en horario de descanso (12:00 - 14:00).');
-      }
+      if (error) throw error;
 
-      const newAppointment: Appointment = {
-        ...appointmentData,
-        id: `apt-${Date.now()}`,
-        status: AppointmentStatus.CONFIRMED,
-        createdAt: new Date().toISOString()
-      };
-
-      appointments.push(newAppointment);
-      localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify(appointments));
-
-      // Update User Points - ONLY DEDUCT here, do NOT add
-      const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-      const userIndex = users.findIndex(u => u.id === appointmentData.userId);
-      if (userIndex !== -1) {
-        let points = users[userIndex].loyaltyPoints || 0;
-        
-        // Deduct points if used
-        if (appointmentData.pointsRedeemed) {
-          points -= appointmentData.pointsRedeemed;
-          users[userIndex].loyaltyPoints = points;
-          localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-          
-          // Update current user session if needed
-          const currentUser = JSON.parse(localStorage.getItem(KEYS.CURRENT_USER) || '{}');
-          if (currentUser.id === users[userIndex].id) {
-            localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(users[userIndex]));
-          }
+      // 3. Descontar puntos si aplica
+      if (apt.pointsRedeemed > 0) {
+        const { data: user } = await supabase.from('users').select('loyalty_points').eq('id', apt.userId).single();
+        if (user) {
+            const newPoints = Math.max(0, user.loyalty_points - apt.pointsRedeemed);
+            await supabase.from('users').update({ loyalty_points: newPoints }).eq('id', apt.userId);
         }
       }
-
-      return newAppointment;
     },
 
     listByUser: async (userId: string): Promise<Appointment[]> => {
-      await delay(DELAY_MS);
-      const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-      return appointments.filter(a => a.userId === userId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false });
+      
+      if (error) throw error;
+      return data.map((a: any) => mapAppointment(a));
     },
 
     listAll: async (): Promise<Appointment[]> => {
-        await delay(DELAY_MS);
-        const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-        return appointments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .order('date', { ascending: false });
+        
+      if (error) throw error;
+      return data.map((a: any) => mapAppointment(a));
     },
 
-    update: async (id: string, updates: Partial<Appointment>): Promise<Appointment> => {
-        await delay(DELAY_MS);
-        const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-        const index = appointments.findIndex(a => a.id === id);
-        if (index === -1) throw new Error("Cita no encontrada");
-        
-        const oldStatus = appointments[index].status;
-        
-        // Apply updates
-        appointments[index] = { ...appointments[index], ...updates };
-        
-        // ADD POINTS LOGIC: If status changed TO Completed
-        if (updates.status === AppointmentStatus.COMPLETED && oldStatus !== AppointmentStatus.COMPLETED) {
-            const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-            const userIndex = users.findIndex(u => u.id === appointments[index].userId);
-            if (userIndex !== -1) {
-                // Add 10 points
-                users[userIndex].loyaltyPoints = (users[userIndex].loyaltyPoints || 0) + 10;
-                localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-                
-                // Refresh session if it's the current user (unlikely for admin action, but safe)
-                const currentUser = JSON.parse(localStorage.getItem(KEYS.CURRENT_USER) || '{}');
-                if (currentUser.id === users[userIndex].id) {
-                    localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(users[userIndex]));
-                }
-            }
-        }
+    cancel: async (id: string): Promise<{ penalized: boolean }> => {
+        const { data: apt } = await supabase.from('appointments').select('*').eq('id', id).single();
+        if (!apt) throw new Error("Cita no encontrada");
 
-        localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify(appointments));
-        return appointments[index];
-    },
-
-    cancel: async (appointmentId: string): Promise<{ penalized: boolean }> => {
-      await delay(DELAY_MS);
-      const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-      const index = appointments.findIndex(a => a.id === appointmentId);
-      
-      let penalized = false;
-
-      if (index !== -1) {
-        const apt = appointments[index];
         const aptDate = new Date(`${apt.date}T${apt.time}`);
         const now = new Date();
+        const diffHours = (aptDate.getTime() - now.getTime()) / (1000 * 60 * 60);
         
-        // Calculate hours difference
-        const diffInMs = aptDate.getTime() - now.getTime();
-        const diffInHours = diffInMs / (1000 * 60 * 60);
+        await supabase.from('appointments').update({ status: 'CANCELLED' }).eq('id', id);
 
-        appointments[index].status = AppointmentStatus.CANCELLED;
-        localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify(appointments));
-
-        // Penalty Logic: If cancellation is less than 24 hours before
-        if (diffInHours < 24) {
-            const users: User[] = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-            const userIndex = users.findIndex(u => u.id === apt.userId);
-            if(userIndex !== -1) {
-                users[userIndex].loyaltyPoints -= 10; // Can go negative
-                localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-                
-                // Refresh session if it's current user
-                const currentUser = JSON.parse(localStorage.getItem(KEYS.CURRENT_USER) || '{}');
-                if (currentUser.id === users[userIndex].id) {
-                    localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(users[userIndex]));
-                }
-                penalized = true;
+        if (diffHours < 24) {
+            const { data: user } = await supabase.from('users').select('loyalty_points').eq('id', apt.user_id).single();
+            if (user) {
+                await supabase.from('users').update({ loyalty_points: user.loyalty_points - 10 }).eq('id', apt.user_id);
+                return { penalized: true };
             }
         }
-      }
-      return { penalized };
+        return { penalized: false };
     },
 
-    // Eliminar una cita específica del historial (Borrar permanentemente)
-    delete: async (appointmentId: string): Promise<void> => {
-      await delay(DELAY_MS);
-      let appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-      appointments = appointments.filter(a => a.id !== appointmentId);
-      localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify(appointments));
+    update: async (id: string, updates: any): Promise<void> => {
+        const payload: any = {};
+        if (updates.status) payload.status = updates.status;
+        if (updates.date) payload.date = updates.date;
+        if (updates.time) payload.time = updates.time;
+        if (updates.barberId) payload.barber_id = updates.barberId;
+
+        const { error } = await supabase.from('appointments').update(payload).eq('id', id);
+        if (error) throw error;
+
+        if (updates.status === AppointmentStatus.COMPLETED) {
+             const { data: apt } = await supabase.from('appointments').select('user_id').eq('id', id).single();
+             if (apt) {
+                const { data: user } = await supabase.from('users').select('loyalty_points').eq('id', apt.user_id).single();
+                if (user) {
+                    await supabase.from('users').update({ loyalty_points: (user.loyalty_points || 0) + 10 }).eq('id', apt.user_id);
+                }
+             }
+        }
     },
 
-    // Limpiar historial de citas finalizadas/canceladas de un usuario
-    clearHistory: async (userId: string): Promise<void> => {
-      await delay(DELAY_MS);
-      let appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-      
-      // Mantener solo las que NO son del usuario O las que son del usuario pero están PENDING/CONFIRMED
-      appointments = appointments.filter(a => {
-        if (a.userId !== userId) return true;
-        return a.status === AppointmentStatus.PENDING || a.status === AppointmentStatus.CONFIRMED;
-      });
-
-      localStorage.setItem(KEYS.APPOINTMENTS, JSON.stringify(appointments));
-    },
-    
     getBusySlots: async (barberId: string, date: string): Promise<string[]> => {
-      await delay(300);
-      const appointments: Appointment[] = JSON.parse(localStorage.getItem(KEYS.APPOINTMENTS) || '[]');
-      return appointments
-        .filter(a => a.barberId === barberId && a.date === date && a.status !== AppointmentStatus.CANCELLED)
-        .map(a => a.time);
+        const { data } = await supabase
+            .from('appointments')
+            .select('time')
+            .eq('barber_id', barberId)
+            .eq('date', date)
+            .neq('status', 'CANCELLED');
+        return data?.map((a: any) => a.time) || [];
+    },
+
+    delete: async (id: string): Promise<void> => {
+        await supabase.from('appointments').delete().eq('id', id);
+    },
+
+    clearHistory: async (userId: string): Promise<void> => {
+        await supabase.from('appointments')
+            .delete()
+            .eq('user_id', userId)
+            .in('status', ['COMPLETED', 'CANCELLED']);
     }
   }
 };
+
+const mapAppointment = (dbRecord: any): Appointment => ({
+    id: dbRecord.id,
+    userId: dbRecord.user_id,
+    barberId: dbRecord.barber_id,
+    serviceId: dbRecord.service_id,
+    date: dbRecord.date,
+    time: dbRecord.time,
+    status: dbRecord.status as AppointmentStatus,
+    totalPrice: dbRecord.total_price,
+    pointsRedeemed: dbRecord.points_redeemed,
+    createdAt: dbRecord.created_at
+});
