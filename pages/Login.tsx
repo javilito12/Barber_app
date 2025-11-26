@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Scissors, Eye, EyeOff } from 'lucide-react';
+import { Scissors, Eye, EyeOff, X } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,6 +10,13 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Forgot Password State
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -40,6 +47,23 @@ export const Login: React.FC = () => {
       // La redirección la maneja Supabase automáticamente
     } catch (err: any) {
       setError(`Error con ${provider}: ${err.message}`);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError('');
+    setResetMessage('');
+    setResetLoading(true);
+
+    try {
+      await api.auth.resetPasswordForEmail(resetEmail);
+      setResetMessage('Si el correo existe, recibirás un enlace de recuperación en breve.');
+      setResetEmail('');
+    } catch (err: any) {
+      setResetError(err.message || 'Error al enviar correo');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -113,7 +137,16 @@ export const Login: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2">Contraseña</label>
+          <div className="flex justify-between items-center mb-2">
+            <label className="block text-xs uppercase tracking-wider text-gray-500">Contraseña</label>
+            <button 
+                type="button" 
+                onClick={() => setShowForgotPassword(true)}
+                className="text-xs text-brand-gold hover:text-white transition-colors"
+            >
+                ¿Olvidaste tu contraseña?
+            </button>
+          </div>
           <div className="relative">
             <input
               type={showPassword ? 'text' : 'password'}
@@ -149,6 +182,56 @@ export const Login: React.FC = () => {
           Crear una cuenta
         </Link>
       </div>
+
+      {/* MODAL DE RECUPERACIÓN DE CONTRASEÑA */}
+      {showForgotPassword && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+            <div className="bg-brand-black border border-brand-gold/50 rounded-lg p-6 w-full max-w-sm relative shadow-2xl">
+                <button 
+                    onClick={() => setShowForgotPassword(false)}
+                    className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                >
+                    <X size={20} />
+                </button>
+                
+                <h3 className="text-xl font-bold text-white mb-2">Recuperar Contraseña</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                    Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu acceso.
+                </p>
+
+                {resetMessage && (
+                    <div className="bg-green-900/30 border border-green-800 text-green-400 px-3 py-2 rounded text-sm mb-4">
+                        {resetMessage}
+                    </div>
+                )}
+                
+                {resetError && (
+                    <div className="bg-red-900/30 border border-red-800 text-red-400 px-3 py-2 rounded text-sm mb-4">
+                        {resetError}
+                    </div>
+                )}
+
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                    <input 
+                        type="email"
+                        required
+                        placeholder="tu@email.com"
+                        className="w-full bg-black border border-gray-700 text-white rounded p-3 focus:border-brand-gold outline-none"
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                    />
+                    <button 
+                        type="submit"
+                        disabled={resetLoading}
+                        className="w-full bg-brand-gold hover:bg-white text-black font-bold py-2 rounded transition-colors disabled:opacity-50"
+                    >
+                        {resetLoading ? 'Enviando...' : 'Enviar Correo'}
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 };

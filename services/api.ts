@@ -15,6 +15,14 @@ export const api = {
       return data;
     },
 
+    // Nueva función para recuperar contraseña
+    resetPasswordForEmail: async (email: string) => {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin, // El usuario volverá aquí para poner la nueva pass
+      });
+      if (error) throw new Error(error.message);
+    },
+
     login: async (email: string, password: string): Promise<AuthResponse> => {
       // 1. Intentar Loguear en el sistema de Autenticación
       const { data, error } = await supabase.auth.signInWithPassword({
